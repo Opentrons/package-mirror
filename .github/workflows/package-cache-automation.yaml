@@ -22,9 +22,11 @@ on:
     # Run daily at 2 AM UTC to check for new package versions
     - cron: '0 2 * * *'
   push:
+    branches: [ main ]
     paths:
       - 'package.json'
-      - '**/package.json'
+      - 'scripts/**'
+      - '.github/workflows/**'
 
 jobs:
   cache-packages:

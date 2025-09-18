@@ -201,8 +201,24 @@ function getAllPackages(packageJson) {
           platforms: [
             { os: 'All Platforms', platform: 'npm', arch: 'all' }
           ],
-          getDownloadUrl: (version) => `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`,
-          getFilename: (version) => `${name}-${version}.tgz`
+          getDownloadUrl: (version) => {
+            // Handle scoped packages (e.g., @aws-sdk/client-cloudfront)
+            if (name.startsWith('@')) {
+              const scopedName = name.replace('@', '').replace('/', '-')
+              return `https://registry.npmjs.org/${name}/-/${scopedName}-${version}.tgz`
+            } else {
+              return `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`
+            }
+          },
+          getFilename: (version) => {
+            // Handle scoped packages in filename
+            if (name.startsWith('@')) {
+              const scopedName = name.replace('@', '').replace('/', '-')
+              return `${scopedName}-${version}.tgz`
+            } else {
+              return `${name}-${version}.tgz`
+            }
+          }
         },
         type: 'npm'
       })

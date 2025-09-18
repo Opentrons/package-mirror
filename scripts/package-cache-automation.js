@@ -141,15 +141,27 @@ async function checkReleaseExists(octokit, packageName, version) {
 async function downloadFile(url, filepath) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(filepath)
+    let redirectCount = 0
+    const maxRedirects = 5
     
     const download = (downloadUrl) => {
+      if (redirectCount >= maxRedirects) {
+        reject(new Error(`Too many redirects (${redirectCount})`))
+        return
+      }
+      
       https.get(downloadUrl, (response) => {
         // Handle redirects
         if (response.statusCode === 301 || response.statusCode === 302) {
           const redirectUrl = response.headers.location
           if (redirectUrl) {
-            console.log(`Redirecting to: ${redirectUrl}`)
+            redirectCount++
+            console.log(`Redirecting from ${downloadUrl} to: ${redirectUrl}`)
             download(redirectUrl)
+            return
+          } else {
+            console.error(`Redirect response but no location header: ${response.statusCode}`)
+            reject(new Error(`Redirect without location header: ${response.statusCode}`))
             return
           }
         }

@@ -321,6 +321,7 @@ async function cachePackage(packageInfo, deploy) {
       await uploadAsset(octokit, newRelease, filepath, filename, deploy)
     }
     
+    // Only print success message if we get here (all downloads succeeded)
     console.log(`\n✅ Successfully cached ${config.name} ${version} for all platforms`)
     if (deploy) {
       console.log(`Release URL: ${newRelease.html_url}`)
@@ -387,10 +388,14 @@ async function main() {
   console.log(`\n📊 Summary:`)
   console.log(`✅ Successfully processed: ${successCount}/${totalCount} packages`)
   
-  if (deploy) {
-    console.log(`\n🎉 All packages have been cached in GitHub releases!`)
+  if (successCount > 0) {
+    if (deploy) {
+      console.log(`\n🎉 Successfully cached ${successCount} package(s) in GitHub releases!`)
+    } else {
+      console.log(`\n🔍 This was a dry run. Use --deploy to actually create releases.`)
+    }
   } else {
-    console.log(`\n🔍 This was a dry run. Use --deploy to actually create releases.`)
+    console.log(`\n❌ No packages were successfully cached.`)
   }
 }
 

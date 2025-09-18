@@ -4,12 +4,14 @@
 /**
  * Package Cache Automation Script
  * 
- * This script automates the process of caching various packages in GitHub releases.
- * It can cache Cypress, Electron, and other binary packages for faster CI builds.
+ * This script automates the process of caching binary packages in GitHub releases.
+ * It fetches the package.json from the Opentrons/opentrons repository and caches
+ * any binary packages found in the dependencies (Cypress, Electron, Puppeteer, etc.)
+ * for faster CI builds.
  * 
- * Usage: node scripts/package-cache-automation.js [--deploy] [--package=cypress|electron]
+ * Usage: node scripts/package-cache-automation.js [--deploy] [--package=cypress|electron|puppeteer]
  * --deploy: Actually create the release and upload assets (default: dry run)
- * --package: Specific package to cache (default: all packages)
+ * --package: Specific package to cache (default: all binary packages found)
  */
 
 const { Octokit } = require('@octokit/rest')
@@ -23,8 +25,37 @@ const REPO_DETAILS = {
   repo: 'package-mirror',
 }
 
-// Package configurations
-const PACKAGE_CONFIGS = {
+const SOURCE_REPO = {
+  owner: 'Opentrons',
+  repo: 'opentrons',
+  branch: 'edge'
+}
+
+
+async function getPackageJsonFromRepo(octokit) {
+  try {
+    console.log(`Fetching package.json from ${SOURCE_REPO.owner}/${SOURCE_REPO.repo}...`)
+    const { data } = await octokit.rest.repos.getContent({
+      owner: SOURCE_REPO.owner,
+      repo: SOURCE_REPO.repo,
+      path: 'package.json',
+      ref: SOURCE_REPO.branch
+    })
+    
+    if (data.type !== 'file') {
+      throw new Error('package.json is not a file')
+    }
+    
+    const content = Buffer.from(data.content, 'base64').toString('utf8')
+    return JSON.parse(content)
+  } catch (error) {
+    console.error('Error fetching package.json from repository:', error.message)
+    process.exit(1)
+  }
+}
+
+// Known packages that have downloadable binaries
+const BINARY_PACKAGES = {
   cypress: {
     name: 'Cypress',
     platforms: [
@@ -35,9 +66,7 @@ const PACKAGE_CONFIGS = {
     getDownloadUrl: (version, platform, arch) => 
       `https://download.cypress.io/desktop/${version}?platform=${platform}&arch=${arch}`,
     getFilename: (version, platform, arch) => 
-      `cypress-${version}-${platform}-${arch}.zip`,
-    getPackageVersion: (packageJson) => 
-      packageJson.dependencies?.cypress || packageJson.devDependencies?.cypress
+      `cypress-${version}-${platform}-${arch}.zip`
   },
   electron: {
     name: 'Electron',
@@ -49,19 +78,48 @@ const PACKAGE_CONFIGS = {
     getDownloadUrl: (version, platform, arch) => 
       `https://github.com/electron/electron/releases/download/v${version}/electron-v${version}-${platform}-${arch}.zip`,
     getFilename: (version, platform, arch) => 
-      `electron-v${version}-${platform}-${arch}.zip`,
-    getPackageVersion: (packageJson) => 
-      packageJson.dependencies?.electron || packageJson.devDependencies?.electron
+      `electron-v${version}-${platform}-${arch}.zip`
+  },
+  puppeteer: {
+    name: 'Puppeteer',
+    platforms: [
+      { os: 'Linux', platform: 'linux', arch: 'x64' },
+      { os: 'macOS', platform: 'darwin', arch: 'x64' },
+      { os: 'Windows', platform: 'win32', arch: 'x64' }
+    ],
+    getDownloadUrl: (version, platform, arch) => {
+      // Puppeteer downloads Chrome/Chromium binaries
+      const chromeVersion = version.replace(/[^\d.]/g, '')
+      return `https://storage.googleapis.com/chrome-for-testing-public/${chromeVersion}/${platform}-${arch}/chrome-${platform}-${arch}.zip`
+    },
+    getFilename: (version, platform, arch) => 
+      `puppeteer-chrome-${version}-${platform}-${arch}.zip`
   }
 }
 
-async function getPackageJson() {
-  try {
-    return JSON.parse(fs.readFileSync('package.json', 'utf8'))
-  } catch (error) {
-    console.error('Error reading package.json:', error.message)
-    process.exit(1)
+function getAllDependencies(packageJson) {
+  const deps = { ...packageJson.dependencies, ...packageJson.devDependencies }
+  return Object.entries(deps).map(([name, version]) => ({
+    name,
+    version: version.replace(/^[\^~]/, '') // Remove version prefixes
+  }))
+}
+
+function getBinaryPackages(packageJson) {
+  const allDeps = getAllDependencies(packageJson)
+  const binaryPackages = []
+  
+  for (const { name, version } of allDeps) {
+    if (BINARY_PACKAGES[name]) {
+      binaryPackages.push({
+        name,
+        version,
+        config: BINARY_PACKAGES[name]
+      })
+    }
   }
+  
+  return binaryPackages
 }
 
 async function checkReleaseExists(octokit, packageName, version) {
@@ -118,16 +176,17 @@ async function downloadPackageBinary(packageName, version, platform, arch, confi
   return { filepath, filename }
 }
 
-async function createRelease(octokit, packageName, version, deploy) {
+async function createRelease(octokit, packageName, version, deploy, config) {
   const tagName = `${packageName}-${version}`
-  const releaseName = `${PACKAGE_CONFIGS[packageName].name} ${version} Cache`
-  const body = `Cached ${PACKAGE_CONFIGS[packageName].name} ${version} binaries for faster CI builds.
+  const releaseName = `${config.name} ${version} Cache`
+  const body = `Cached ${config.name} ${version} binaries for faster CI builds.
 
-This release contains pre-downloaded ${PACKAGE_CONFIGS[packageName].name} binaries for all supported platforms to speed up CI builds.
+This release contains pre-downloaded ${config.name} binaries for all supported platforms to speed up CI builds.
 
 **Generated by:** Package Cache Automation Script
-**Package:** ${PACKAGE_CONFIGS[packageName].name}
+**Package:** ${config.name}
 **Version:** ${version}
+**Source Repository:** ${SOURCE_REPO.owner}/${SOURCE_REPO.repo}
 **Created:** ${new Date().toISOString()}`
 
   if (deploy) {
@@ -191,12 +250,8 @@ async function cleanup(filepaths) {
   }
 }
 
-async function cachePackage(packageName, version, deploy) {
-  const config = PACKAGE_CONFIGS[packageName]
-  if (!config) {
-    console.error(`Unknown package: ${packageName}`)
-    return false
-  }
+async function cachePackage(packageInfo, deploy) {
+  const { name: packageName, version, config } = packageInfo
 
   console.log(`\n📦 Processing ${config.name} ${version}...`)
   
@@ -214,7 +269,7 @@ async function cachePackage(packageName, version, deploy) {
   console.log(`❌ Release ${packageName}-${version} does not exist. Creating...`)
   
   // Create the release
-  const newRelease = await createRelease(octokit, packageName, version, deploy)
+  const newRelease = await createRelease(octokit, packageName, version, deploy, config)
   
   if (deploy) {
     console.log(`Created release: ${newRelease.html_url}`)
@@ -261,31 +316,36 @@ async function main() {
     process.exit(1)
   }
 
-  const packageJson = await getPackageJson()
+  const octokit = new Octokit({ auth: token })
+  const packageJson = await getPackageJsonFromRepo(octokit)
   
-  // Determine which packages to process
-  const packagesToProcess = specificPackage ? [specificPackage] : Object.keys(PACKAGE_CONFIGS)
+  // Get all binary packages from the repository's package.json
+  const binaryPackages = getBinaryPackages(packageJson)
+  
+  // Filter by specific package if requested
+  const packagesToProcess = specificPackage 
+    ? binaryPackages.filter(pkg => pkg.name === specificPackage)
+    : binaryPackages
   
   console.log(`🚀 Package Cache Automation`)
   console.log(`Mode: ${deploy ? 'DEPLOY' : 'DRY RUN'}`)
-  console.log(`Packages to process: ${packagesToProcess.join(', ')}`)
+  console.log(`Source Repository: ${SOURCE_REPO.owner}/${SOURCE_REPO.repo}`)
+  console.log(`Found ${binaryPackages.length} binary packages in package.json`)
+  console.log(`Packages to process: ${packagesToProcess.map(p => p.name).join(', ')}`)
+  
+  if (packagesToProcess.length === 0) {
+    console.log(`⚠️  No binary packages found to cache.`)
+    console.log(`Available binary packages: ${Object.keys(BINARY_PACKAGES).join(', ')}`)
+    return
+  }
   
   let successCount = 0
-  let totalCount = 0
+  let totalCount = packagesToProcess.length
   
-  for (const packageName of packagesToProcess) {
-    const config = PACKAGE_CONFIGS[packageName]
-    const version = config.getPackageVersion(packageJson)
+  for (const packageInfo of packagesToProcess) {
+    console.log(`\n${packageInfo.config.name} version: ${packageInfo.version}`)
     
-    if (!version) {
-      console.log(`⚠️  ${config.name} not found in package.json, skipping...`)
-      continue
-    }
-    
-    console.log(`\n${config.name} version: ${version}`)
-    totalCount++
-    
-    const success = await cachePackage(packageName, version, deploy)
+    const success = await cachePackage(packageInfo, deploy)
     if (success) {
       successCount++
     }

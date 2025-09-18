@@ -1,0 +1,24 @@
+{
+  "name": "package-mirror",
+  "version": "1.0.0",
+  "description": "Package cache automation for Opentrons repositories",
+  "main": "scripts/package-cache-automation.js",
+  "scripts": {
+    "cache": "node scripts/package-cache-automation.js",
+    "cache:deploy": "node scripts/package-cache-automation.js --deploy"
+  },
+  "dependencies": {
+    "@octokit/rest": "^20.0.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "package-cache",
+    "ci",
+    "automation",
+    "opentrons"
+  ],
+  "author": "Opentrons",
+  "license": "MIT"
+}

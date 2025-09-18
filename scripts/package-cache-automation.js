@@ -214,10 +214,11 @@ function getAllPackages(packageJson) {
 
 async function checkReleaseExists(octokit, packageName, version) {
   try {
+    const tagName = sanitizeTagName(`${packageName}-${version}`)
     const { data } = await octokit.rest.repos.getReleaseByTag({
       owner: REPO_DETAILS.owner,
       repo: REPO_DETAILS.repo,
-      tag: `${packageName}-${version}`
+      tag: tagName
     })
     return { exists: true, release: data }
   } catch (error) {
@@ -322,8 +323,19 @@ async function downloadNpmPackage(packageName, version, config) {
   return { filepath, filename }
 }
 
+function sanitizeTagName(name) {
+  // GitHub tag names must be valid git refs
+  // Remove or replace invalid characters
+  return name
+    .replace(/[^a-zA-Z0-9._-]/g, '-')  // Replace invalid chars with hyphens
+    .replace(/^[.-]/, '')              // Remove leading dots/hyphens
+    .replace(/[.-]$/, '')              // Remove trailing dots/hyphens
+    .replace(/-+/g, '-')               // Replace multiple hyphens with single
+    .substring(0, 100)                 // Limit length
+}
+
 async function createRelease(octokit, packageName, version, deploy, config) {
-  const tagName = `${packageName}-${version}`
+  const tagName = sanitizeTagName(`${packageName}-${version}`)
   const releaseName = `${config.name} ${version} Cache`
   const body = `Cached ${config.name} ${version} binaries for faster CI builds.
 
@@ -407,12 +419,18 @@ async function cachePackage(packageInfo, deploy) {
   const { exists, release } = await checkReleaseExists(octokit, packageName, version)
   
   if (exists) {
-    console.log(`✅ Release ${packageName}-${version} already exists`)
+    const tagName = sanitizeTagName(`${packageName}-${version}`)
+    console.log(`✅ Release ${tagName} already exists`)
     console.log(`Release URL: ${release.html_url}`)
     return true
   }
   
-  console.log(`❌ Release ${packageName}-${version} does not exist. Creating...`)
+  const originalTagName = `${packageName}-${version}`
+  const tagName = sanitizeTagName(originalTagName)
+  if (originalTagName !== tagName) {
+    console.log(`📝 Sanitized tag name: "${originalTagName}" → "${tagName}"`)
+  }
+  console.log(`❌ Release ${tagName} does not exist. Creating...`)
   
   // Create the release
   const newRelease = await createRelease(octokit, packageName, version, deploy, config)

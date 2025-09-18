@@ -141,20 +141,36 @@ async function checkReleaseExists(octokit, packageName, version) {
 async function downloadFile(url, filepath) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(filepath)
-    https.get(url, (response) => {
-      if (response.statusCode !== 200) {
-        reject(new Error(`Failed to download: ${response.statusCode}`))
-        return
-      }
-      response.pipe(file)
-      file.on('finish', () => {
-        file.close()
-        resolve()
+    
+    const download = (downloadUrl) => {
+      https.get(downloadUrl, (response) => {
+        // Handle redirects
+        if (response.statusCode === 301 || response.statusCode === 302) {
+          const redirectUrl = response.headers.location
+          if (redirectUrl) {
+            console.log(`Redirecting to: ${redirectUrl}`)
+            download(redirectUrl)
+            return
+          }
+        }
+        
+        if (response.statusCode !== 200) {
+          reject(new Error(`Failed to download: ${response.statusCode}`))
+          return
+        }
+        
+        response.pipe(file)
+        file.on('finish', () => {
+          file.close()
+          resolve()
+        })
+      }).on('error', (err) => {
+        fs.unlink(filepath, () => {}) // Delete the file on error
+        reject(err)
       })
-    }).on('error', (err) => {
-      fs.unlink(filepath, () => {}) // Delete the file on error
-      reject(err)
-    })
+    }
+    
+    download(url)
   })
 }
 
@@ -170,8 +186,13 @@ async function downloadPackageBinary(packageName, version, platform, arch, confi
   }
   
   console.log(`Downloading ${filename} from ${url}`)
-  await downloadFile(url, filepath)
-  console.log(`Downloaded ${filename}`)
+  try {
+    await downloadFile(url, filepath)
+    console.log(`Downloaded ${filename}`)
+  } catch (error) {
+    console.error(`Failed to download ${filename}:`, error.message)
+    throw error
+  }
   
   return { filepath, filename }
 }

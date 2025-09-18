@@ -4,14 +4,14 @@
 /**
  * Package Cache Automation Script
  * 
- * This script automates the process of caching binary packages in GitHub releases.
+ * This script automates the process of caching ALL packages in GitHub releases.
  * It fetches the package.json from the Opentrons/opentrons repository and caches
- * any binary packages found in the dependencies (Cypress, Electron, Puppeteer, etc.)
- * for faster CI builds.
+ * all dependencies (both binary packages and npm packages) for faster CI builds.
+ * This provides GitHub's faster download speeds instead of going to package maintainers.
  * 
- * Usage: node scripts/package-cache-automation.js [--deploy] [--package=cypress|electron|puppeteer]
+ * Usage: node scripts/package-cache-automation.js [--deploy] [--package=package-name]
  * --deploy: Actually create the release and upload assets (default: dry run)
- * --package: Specific package to cache (default: all binary packages found)
+ * --package: Specific package to cache (default: all packages found)
  */
 
 const { Octokit } = require('@octokit/rest')
@@ -175,9 +175,9 @@ function getAllDependencies(packageJson) {
   }))
 }
 
-function getBinaryPackages(packageJson) {
+function getAllPackages(packageJson) {
   const allDeps = getAllDependencies(packageJson)
-  const binaryPackages = []
+  const packagesToCache = []
   
   console.log(`\nFound ${allDeps.length} total dependencies in package.json`)
   console.log(`Available binary packages: ${Object.keys(BINARY_PACKAGES).join(', ')}`)
@@ -185,15 +185,31 @@ function getBinaryPackages(packageJson) {
   for (const { name, version } of allDeps) {
     if (BINARY_PACKAGES[name]) {
       console.log(`✅ Found binary package: ${name}@${version}`)
-      binaryPackages.push({
+      packagesToCache.push({
         name,
         version,
-        config: BINARY_PACKAGES[name]
+        config: BINARY_PACKAGES[name],
+        type: 'binary'
+      })
+    } else {
+      console.log(`📦 Found npm package: ${name}@${version}`)
+      packagesToCache.push({
+        name,
+        version,
+        config: {
+          name: name,
+          platforms: [
+            { os: 'All Platforms', platform: 'npm', arch: 'all' }
+          ],
+          getDownloadUrl: (version) => `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`,
+          getFilename: (version) => `${name}-${version}.tgz`
+        },
+        type: 'npm'
       })
     }
   }
   
-  return binaryPackages
+  return packagesToCache
 }
 
 async function checkReleaseExists(octokit, packageName, version) {
@@ -263,6 +279,29 @@ async function downloadFile(url, filepath) {
 async function downloadPackageBinary(packageName, version, platform, arch, config) {
   const url = config.getDownloadUrl(version, platform, arch)
   const filename = config.getFilename(version, platform, arch)
+  const filepath = path.join(__dirname, '..', 'temp', filename)
+  
+  // Create temp directory if it doesn't exist
+  const tempDir = path.dirname(filepath)
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true })
+  }
+  
+  console.log(`Downloading ${filename} from ${url}`)
+  try {
+    await downloadFile(url, filepath)
+    console.log(`Downloaded ${filename}`)
+  } catch (error) {
+    console.error(`Failed to download ${filename}:`, error.message)
+    throw error
+  }
+  
+  return { filepath, filename }
+}
+
+async function downloadNpmPackage(packageName, version, config) {
+  const url = config.getDownloadUrl(version)
+  const filename = config.getFilename(version)
   const filepath = path.join(__dirname, '..', 'temp', filename)
   
   // Create temp directory if it doesn't exist
@@ -382,21 +421,36 @@ async function cachePackage(packageInfo, deploy) {
     console.log(`Created release: ${newRelease.html_url}`)
   }
   
-  // Download and upload binaries for all platforms
+  // Download and upload packages
   const downloadedFiles = []
   
   try {
-    for (const { os, platform, arch } of config.platforms) {
-      console.log(`\nProcessing ${os} (${platform}-${arch})...`)
+    if (packageInfo.type === 'binary') {
+      // Binary packages need downloads for all platforms
+      for (const { os, platform, arch } of config.platforms) {
+        console.log(`\nProcessing ${os} (${platform}-${arch})...`)
+        
+        const { filepath, filename } = await downloadPackageBinary(packageName, version, platform, arch, config)
+        downloadedFiles.push(filepath)
+        
+        await uploadAsset(octokit, newRelease, filepath, filename, deploy)
+      }
+    } else {
+      // NPM packages only need one download
+      console.log(`\nProcessing npm package...`)
       
-      const { filepath, filename } = await downloadPackageBinary(packageName, version, platform, arch, config)
+      const { filepath, filename } = await downloadNpmPackage(packageName, version, config)
       downloadedFiles.push(filepath)
       
       await uploadAsset(octokit, newRelease, filepath, filename, deploy)
     }
     
     // Only print success message if we get here (all downloads succeeded)
-    console.log(`\n✅ Successfully cached ${config.name} ${version} for all platforms`)
+    if (packageInfo.type === 'binary') {
+      console.log(`\n✅ Successfully cached ${config.name} ${version} for all platforms`)
+    } else {
+      console.log(`\n✅ Successfully cached ${config.name} ${version} npm package`)
+    }
     if (deploy) {
       console.log(`Release URL: ${newRelease.html_url}`)
     }
@@ -427,19 +481,19 @@ async function main() {
   const octokit = new Octokit({ auth: token })
   const packageJson = await getPackageJsonFromRepo(octokit)
   
-  // Get all binary packages from the repository's package.json
-  const binaryPackages = getBinaryPackages(packageJson)
+  // Get all packages from the repository's package.json
+  const allPackages = getAllPackages(packageJson)
   
   // Filter by specific package if requested
   const packagesToProcess = specificPackage 
-    ? binaryPackages.filter(pkg => pkg.name === specificPackage)
-    : binaryPackages
+    ? allPackages.filter(pkg => pkg.name === specificPackage)
+    : allPackages
   
   console.log(`🚀 Package Cache Automation`)
   console.log(`Mode: ${deploy ? 'DEPLOY' : 'DRY RUN'}`)
   console.log(`Source Repository: ${SOURCE_REPO.owner}/${SOURCE_REPO.repo}`)
-  console.log(`Found ${binaryPackages.length} binary packages in package.json`)
-  console.log(`Packages to process: ${packagesToProcess.map(p => p.name).join(', ')}`)
+  console.log(`Found ${allPackages.length} total packages in package.json`)
+  console.log(`Packages to process: ${packagesToProcess.map(p => `${p.name}@${p.version}`).join(', ')}`)
   
   if (packagesToProcess.length === 0) {
     console.log(`⚠️  No binary packages found to cache.`)
@@ -456,6 +510,9 @@ async function main() {
     const success = await cachePackage(packageInfo, deploy)
     if (success) {
       successCount++
+      console.log(`✅ ${packageInfo.config.name} ${packageInfo.version} - SUCCESS`)
+    } else {
+      console.log(`❌ ${packageInfo.config.name} ${packageInfo.version} - FAILED`)
     }
   }
   

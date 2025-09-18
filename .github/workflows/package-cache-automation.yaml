@@ -1,0 +1,129 @@
+name: 'Package Cache Automation'
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_name:
+        description: 'Package to cache (cypress, electron, or leave empty for all)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - cypress
+          - electron
+        default: ''
+      deploy:
+        description: 'Actually create the release (default: dry run)'
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    # Run daily at 2 AM UTC to check for new package versions
+    - cron: '0 2 * * *'
+  push:
+    paths:
+      - 'package.json'
+      - '**/package.json'
+
+jobs:
+  cache-packages:
+    runs-on: 'ubuntu-24.04'
+    name: 'Cache Package Binaries'
+    permissions:
+      contents: write
+      actions: read
+    
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: 'Setup Node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: 'yarn'
+          cache-dependency-path: |
+            yarn.lock
+            **/yarn.lock
+      
+      - name: 'Install Dependencies'
+        run: yarn install --frozen-lockfile
+      
+      - name: 'Check package versions'
+        id: check-versions
+        run: |
+          # Get package versions from package.json
+          CYPRESS_VERSION=$(grep '"cypress"' package.json | sed 's/.*"cypress": *"\([^"]*\)".*/\1/' || echo "")
+          ELECTRON_VERSION=$(grep '"electron"' package.json | sed 's/.*"electron": *"\([^"]*\)".*/\1/' || echo "")
+          
+          echo "cypress_version=$CYPRESS_VERSION" >> $GITHUB_OUTPUT
+          echo "electron_version=$ELECTRON_VERSION" >> $GITHUB_OUTPUT
+          
+          # Check which packages need caching
+          PACKAGES_TO_CACHE=""
+          
+          if [ -n "$CYPRESS_VERSION" ]; then
+            if ! curl -s --head "https://github.com/Opentrons/package-mirror/releases/download/cypress-${CYPRESS_VERSION}/cypress-${CYPRESS_VERSION}-linux-x64.zip" | head -n 1 | grep -q "200 OK"; then
+              PACKAGES_TO_CACHE="$PACKAGES_TO_CACHE cypress"
+              echo "❌ Cypress ${CYPRESS_VERSION} needs to be cached"
+            else
+              echo "✅ Cypress ${CYPRESS_VERSION} is already cached"
+            fi
+          fi
+          
+          if [ -n "$ELECTRON_VERSION" ]; then
+            if ! curl -s --head "https://github.com/Opentrons/package-mirror/releases/download/electron-${ELECTRON_VERSION}/electron-v${ELECTRON_VERSION}-linux-x64.zip" | head -n 1 | grep -q "200 OK"; then
+              PACKAGES_TO_CACHE="$PACKAGES_TO_CACHE electron"
+              echo "❌ Electron ${ELECTRON_VERSION} needs to be cached"
+            else
+              echo "✅ Electron ${ELECTRON_VERSION} is already cached"
+            fi
+          fi
+          
+          echo "packages_to_cache=$PACKAGES_TO_CACHE" >> $GITHUB_OUTPUT
+      
+      - name: 'Cache Package Binaries'
+        if: steps.check-versions.outputs.packages_to_cache != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Determine if this is a deploy run
+          DEPLOY_FLAG=""
+          if [ "${{ github.event.inputs.deploy }}" == "true" ] || [ "${{ github.event_name }}" == "schedule" ] || [ "${{ github.event_name }}" == "push" ]; then
+            DEPLOY_FLAG="--deploy"
+            echo "🚀 Running in deploy mode - will create actual releases"
+          else
+            echo "🔍 Running in dry-run mode - will show what would be done"
+          fi
+          
+          # Determine which package to process
+          PACKAGE_FLAG=""
+          if [ -n "${{ github.event.inputs.package_name }}" ]; then
+            PACKAGE_FLAG="--package=${{ github.event.inputs.package_name }}"
+          fi
+          
+          # Run the automation script
+          node scripts/package-cache-automation.js $DEPLOY_FLAG $PACKAGE_FLAG
+      
+      - name: 'Summary'
+        if: always()
+        run: |
+          echo "## Package Cache Automation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Cypress Version:** ${{ steps.check-versions.outputs.cypress_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Electron Version:** ${{ steps.check-versions.outputs.electron_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Packages to Cache:** ${{ steps.check-versions.outputs.packages_to_cache }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Deploy Mode:** ${{ github.event.inputs.deploy || (github.event_name == 'schedule' && 'true') || (github.event_name == 'push' && 'true') || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.check-versions.outputs.packages_to_cache }}" != "" ]; then
+            if [ "${{ github.event.inputs.deploy }}" == "true" ] || [ "${{ github.event_name }}" == "schedule" ] || [ "${{ github.event_name }}" == "push" ]; then
+              echo "✅ **Action Taken:** Created GitHub releases with cached package binaries" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "🔍 **Action Taken:** Dry run - showed what would be done" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "ℹ️ **Action Taken:** No action needed - all packages already cached" >> $GITHUB_STEP_SUMMARY
+          fi

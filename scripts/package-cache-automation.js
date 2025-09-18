@@ -94,6 +94,76 @@ const BINARY_PACKAGES = {
     },
     getFilename: (version, platform, arch) => 
       `puppeteer-chrome-${version}-${platform}-${arch}.zip`
+  },
+  playwright: {
+    name: 'Playwright',
+    platforms: [
+      { os: 'Linux', platform: 'linux', arch: 'x64' },
+      { os: 'macOS', platform: 'darwin', arch: 'x64' },
+      { os: 'Windows', platform: 'win32', arch: 'x64' }
+    ],
+    getDownloadUrl: (version, platform, arch) => {
+      // Playwright downloads browser binaries
+      return `https://playwright.azureedge.net/builds/playwright-${version}-${platform}-${arch}.zip`
+    },
+    getFilename: (version, platform, arch) => 
+      `playwright-${version}-${platform}-${arch}.zip`
+  },
+  'playwright-core': {
+    name: 'Playwright Core',
+    platforms: [
+      { os: 'Linux', platform: 'linux', arch: 'x64' },
+      { os: 'macOS', platform: 'darwin', arch: 'x64' },
+      { os: 'Windows', platform: 'win32', arch: 'x64' }
+    ],
+    getDownloadUrl: (version, platform, arch) => {
+      // Playwright Core downloads browser binaries
+      return `https://playwright.azureedge.net/builds/playwright-core-${version}-${platform}-${arch}.zip`
+    },
+    getFilename: (version, platform, arch) => 
+      `playwright-core-${version}-${platform}-${arch}.zip`
+  },
+  'playwright-chromium': {
+    name: 'Playwright Chromium',
+    platforms: [
+      { os: 'Linux', platform: 'linux', arch: 'x64' },
+      { os: 'macOS', platform: 'darwin', arch: 'x64' },
+      { os: 'Windows', platform: 'win32', arch: 'x64' }
+    ],
+    getDownloadUrl: (version, platform, arch) => {
+      // Playwright Chromium downloads Chromium binaries
+      return `https://playwright.azureedge.net/builds/chromium-${version}-${platform}-${arch}.zip`
+    },
+    getFilename: (version, platform, arch) => 
+      `playwright-chromium-${version}-${platform}-${arch}.zip`
+  },
+  'playwright-firefox': {
+    name: 'Playwright Firefox',
+    platforms: [
+      { os: 'Linux', platform: 'linux', arch: 'x64' },
+      { os: 'macOS', platform: 'darwin', arch: 'x64' },
+      { os: 'Windows', platform: 'win32', arch: 'x64' }
+    ],
+    getDownloadUrl: (version, platform, arch) => {
+      // Playwright Firefox downloads Firefox binaries
+      return `https://playwright.azureedge.net/builds/firefox-${version}-${platform}-${arch}.zip`
+    },
+    getFilename: (version, platform, arch) => 
+      `playwright-firefox-${version}-${platform}-${arch}.zip`
+  },
+  'playwright-webkit': {
+    name: 'Playwright WebKit',
+    platforms: [
+      { os: 'Linux', platform: 'linux', arch: 'x64' },
+      { os: 'macOS', platform: 'darwin', arch: 'x64' },
+      { os: 'Windows', platform: 'win32', arch: 'x64' }
+    ],
+    getDownloadUrl: (version, platform, arch) => {
+      // Playwright WebKit downloads WebKit binaries
+      return `https://playwright.azureedge.net/builds/webkit-${version}-${platform}-${arch}.zip`
+    },
+    getFilename: (version, platform, arch) => 
+      `playwright-webkit-${version}-${platform}-${arch}.zip`
   }
 }
 
@@ -109,8 +179,12 @@ function getBinaryPackages(packageJson) {
   const allDeps = getAllDependencies(packageJson)
   const binaryPackages = []
   
+  console.log(`\nFound ${allDeps.length} total dependencies in package.json`)
+  console.log(`Available binary packages: ${Object.keys(BINARY_PACKAGES).join(', ')}`)
+  
   for (const { name, version } of allDeps) {
     if (BINARY_PACKAGES[name]) {
+      console.log(`✅ Found binary package: ${name}@${version}`)
       binaryPackages.push({
         name,
         version,

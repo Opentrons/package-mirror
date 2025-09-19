@@ -4,15 +4,26 @@ on:
   workflow_dispatch:
     inputs:
       package_name:
-        description: 'Package to cache (cypress, electron, puppeteer, or leave empty for all)'
+        description: 'Package to cache (or leave empty for all whitelisted packages)'
         required: false
         type: choice
         options:
-          - ''
+          - 'all'
           - cypress
           - electron
+          - playwright
           - puppeteer
-        default: ''
+          - playwright-core
+          - playwright-chromium
+          - playwright-firefox
+          - playwright-webkit
+          - chromium
+          - firefox
+          - webkit
+          - node
+          - npm
+          - yarn
+        default: 'all'
       deploy:
         description: 'Actually create the release (default: dry run)'
         required: false
@@ -65,7 +76,7 @@ jobs:
           
           # Determine which package to process
           PACKAGE_FLAG=""
-          if [ -n "${{ github.event.inputs.package_name }}" ]; then
+          if [ -n "${{ github.event.inputs.package_name }}" ] && [ "${{ github.event.inputs.package_name }}" != "all" ]; then
             PACKAGE_FLAG="--package=${{ github.event.inputs.package_name }}"
           fi
           
@@ -78,7 +89,7 @@ jobs:
           echo "## Package Cache Automation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Source Repository:** Opentrons/opentrons (edge branch)" >> $GITHUB_STEP_SUMMARY
-          echo "**Target Package:** ${{ github.event.inputs.package_name || 'All binary packages found' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Target Package:** ${{ github.event.inputs.package_name || 'All whitelisted packages' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Deploy Mode:** ${{ github.event.inputs.deploy || (github.event_name == 'schedule' && 'true') || (github.event_name == 'push' && 'true') || 'false' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

@@ -8,9 +8,23 @@ Instead of downloading package binaries from official sources every time, this r
 
 ## Supported Packages
 
+### Binary Packages
 - **Cypress** - End-to-end testing framework
 - **Electron** - Desktop app framework
-- More packages can be added as needed
+- **Playwright** - Browser automation framework
+- **Puppeteer** - Chrome/Chromium automation
+- **Playwright Core** - Core Playwright functionality
+- **Playwright Chromium** - Chromium browser for Playwright
+- **Playwright Firefox** - Firefox browser for Playwright
+- **Playwright WebKit** - WebKit browser for Playwright
+- **Chromium** - Standalone Chromium browser
+- **Firefox** - Standalone Firefox browser
+- **WebKit** - Standalone WebKit browser
+
+### NPM Packages
+- **Node** - Node.js runtime
+- **NPM** - Node package manager
+- **Yarn** - Alternative package manager
 
 ## How it works
 

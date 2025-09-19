@@ -4,14 +4,16 @@
 /**
  * Package Cache Automation Script
  * 
- * This script automates the process of caching ALL packages in GitHub releases.
+ * This script automates the process of caching specific packages in GitHub releases.
  * It fetches the package.json from the Opentrons/opentrons repository and caches
- * all dependencies (both binary packages and npm packages) for faster CI builds.
+ * only the whitelisted dependencies (both binary packages and npm packages) for faster CI builds.
  * This provides GitHub's faster download speeds instead of going to package maintainers.
+ * 
+ * Currently whitelisted packages: cypress, electron, playwright, puppeteer, chromium, firefox, webkit, node, npm, yarn
  * 
  * Usage: node scripts/package-cache-automation.js [--deploy] [--package=package-name]
  * --deploy: Actually create the release and upload assets (default: dry run)
- * --package: Specific package to cache (default: all packages found)
+ * --package: Specific package to cache (default: all whitelisted packages found)
  */
 
 const { Octokit } = require('@octokit/rest')
@@ -53,6 +55,20 @@ async function getPackageJsonFromRepo(octokit) {
     process.exit(1)
   }
 }
+
+// Whitelist of packages that should be cached
+const ALLOWED_PACKAGES = new Set([
+  'cypress',
+  'electron', 
+  'playwright',
+  'puppeteer',
+  'chromium',
+  'firefox',
+  'webkit',
+  'node',
+  'npm',
+  'yarn'
+])
 
 // Known packages that have downloadable binaries
 const BINARY_PACKAGES = {
@@ -109,61 +125,47 @@ const BINARY_PACKAGES = {
     getFilename: (version, platform, arch) => 
       `playwright-${version}-${platform}-${arch}.zip`
   },
-  'playwright-core': {
-    name: 'Playwright Core',
+  chromium: {
+    name: 'Chromium',
     platforms: [
       { os: 'Linux', platform: 'linux', arch: 'x64' },
       { os: 'macOS', platform: 'darwin', arch: 'x64' },
       { os: 'Windows', platform: 'win32', arch: 'x64' }
     ],
     getDownloadUrl: (version, platform, arch) => {
-      // Playwright Core downloads browser binaries
-      return `https://playwright.azureedge.net/builds/playwright-core-${version}-${platform}-${arch}.zip`
+      // Chromium downloads from Chrome for Testing
+      return `https://storage.googleapis.com/chrome-for-testing-public/${version}/${platform}-${arch}/chrome-${platform}-${arch}.zip`
     },
     getFilename: (version, platform, arch) => 
-      `playwright-core-${version}-${platform}-${arch}.zip`
+      `chromium-${version}-${platform}-${arch}.zip`
   },
-  'playwright-chromium': {
-    name: 'Playwright Chromium',
+  firefox: {
+    name: 'Firefox',
     platforms: [
       { os: 'Linux', platform: 'linux', arch: 'x64' },
       { os: 'macOS', platform: 'darwin', arch: 'x64' },
       { os: 'Windows', platform: 'win32', arch: 'x64' }
     ],
     getDownloadUrl: (version, platform, arch) => {
-      // Playwright Chromium downloads Chromium binaries
-      return `https://playwright.azureedge.net/builds/chromium-${version}-${platform}-${arch}.zip`
+      // Firefox downloads from Mozilla
+      return `https://download.mozilla.org/?product=firefox-${version}&os=${platform}&lang=en-US`
     },
     getFilename: (version, platform, arch) => 
-      `playwright-chromium-${version}-${platform}-${arch}.zip`
+      `firefox-${version}-${platform}-${arch}.zip`
   },
-  'playwright-firefox': {
-    name: 'Playwright Firefox',
+  webkit: {
+    name: 'WebKit',
     platforms: [
       { os: 'Linux', platform: 'linux', arch: 'x64' },
       { os: 'macOS', platform: 'darwin', arch: 'x64' },
       { os: 'Windows', platform: 'win32', arch: 'x64' }
     ],
     getDownloadUrl: (version, platform, arch) => {
-      // Playwright Firefox downloads Firefox binaries
-      return `https://playwright.azureedge.net/builds/firefox-${version}-${platform}-${arch}.zip`
-    },
-    getFilename: (version, platform, arch) => 
-      `playwright-firefox-${version}-${platform}-${arch}.zip`
-  },
-  'playwright-webkit': {
-    name: 'Playwright WebKit',
-    platforms: [
-      { os: 'Linux', platform: 'linux', arch: 'x64' },
-      { os: 'macOS', platform: 'darwin', arch: 'x64' },
-      { os: 'Windows', platform: 'win32', arch: 'x64' }
-    ],
-    getDownloadUrl: (version, platform, arch) => {
-      // Playwright WebKit downloads WebKit binaries
+      // WebKit downloads from Playwright
       return `https://playwright.azureedge.net/builds/webkit-${version}-${platform}-${arch}.zip`
     },
     getFilename: (version, platform, arch) => 
-      `playwright-webkit-${version}-${platform}-${arch}.zip`
+      `webkit-${version}-${platform}-${arch}.zip`
   }
 }
 
@@ -180,9 +182,16 @@ function getAllPackages(packageJson) {
   const packagesToCache = []
   
   console.log(`\nFound ${allDeps.length} total dependencies in package.json`)
+  console.log(`Allowed packages: ${Array.from(ALLOWED_PACKAGES).join(', ')}`)
   console.log(`Available binary packages: ${Object.keys(BINARY_PACKAGES).join(', ')}`)
   
   for (const { name, version } of allDeps) {
+    // Only process packages that are in the allowed list
+    if (!ALLOWED_PACKAGES.has(name)) {
+      console.log(`⏭️  Skipping package (not in allowed list): ${name}@${version}`)
+      continue
+    }
+    
     if (BINARY_PACKAGES[name]) {
       console.log(`✅ Found binary package: ${name}@${version}`)
       packagesToCache.push({
@@ -530,8 +539,8 @@ async function main() {
   console.log(`Packages to process: ${packagesToProcess.map(p => `${p.name}@${p.version}`).join(', ')}`)
   
   if (packagesToProcess.length === 0) {
-    console.log(`⚠️  No binary packages found to cache.`)
-    console.log(`Available binary packages: ${Object.keys(BINARY_PACKAGES).join(', ')}`)
+    console.log(`⚠️  No whitelisted packages found to cache.`)
+    console.log(`Allowed packages: ${Array.from(ALLOWED_PACKAGES).join(', ')}`)
     return
   }
   

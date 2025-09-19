@@ -21,10 +21,6 @@ Instead of downloading package binaries from official sources every time, this r
 - **Firefox** - Standalone Firefox browser
 - **WebKit** - Standalone WebKit browser
 
-### NPM Packages
-- **Node** - Node.js runtime
-- **NPM** - Node package manager
-- **Yarn** - Alternative package manager
 
 ## How it works
 

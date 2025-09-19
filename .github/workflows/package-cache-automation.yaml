@@ -20,9 +20,6 @@ on:
           - chromium
           - firefox
           - webkit
-          - node
-          - npm
-          - yarn
         default: 'all'
       deploy:
         description: 'Actually create the release (default: dry run)'

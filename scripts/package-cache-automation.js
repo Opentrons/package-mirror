@@ -9,7 +9,7 @@
  * only the whitelisted dependencies (both binary packages and npm packages) for faster CI builds.
  * This provides GitHub's faster download speeds instead of going to package maintainers.
  * 
- * Currently whitelisted packages: cypress, electron, playwright, puppeteer, chromium, firefox, webkit, node, npm, yarn
+ * Currently whitelisted packages: cypress, electron, playwright, puppeteer, playwright-core, playwright-chromium, playwright-firefox, playwright-webkit, chromium, firefox, webkit
  * 
  * Usage: node scripts/package-cache-automation.js [--deploy] [--package=package-name]
  * --deploy: Actually create the release and upload assets (default: dry run)
@@ -68,10 +68,7 @@ const ALLOWED_PACKAGES = new Set([
   'playwright-webkit',
   'chromium',
   'firefox',
-  'webkit',
-  'node',
-  'npm',
-  'yarn'
+  'webkit'
 ])
 
 // Known packages that have downloadable binaries
